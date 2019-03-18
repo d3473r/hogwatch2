@@ -23,9 +23,8 @@ class NethogsMonitorRecord(ctypes.Structure):
         ('sent_kbs', ctypes.c_float),
         ('recv_kbs', ctypes.c_float)]
 
-    def __repr__(self):
-        return json.dumps({'record_id': self.record_id, 'name': self.name.decode('utf-8'), 'pid': self.pid, 'uid': self.uid, 'device_name': self.device_name.decode('utf-8'), 'sent_bytes': self.sent_bytes, 'recv_bytes': self.recv_bytes, 'sent_kbs': self.sent_kbs, 'recv_kbs': self.recv_kbs})
-
+    def asdict(self):
+        return {'record_id': self.record_id, 'name': self.name.decode('utf-8'), 'pid': self.pid, 'uid': self.uid, 'device_name': self.device_name.decode('utf-8'), 'sent_bytes': self.sent_bytes, 'recv_bytes': self.recv_bytes, 'sent_kbs': self.sent_kbs, 'recv_kbs': self.recv_kbs}
 
 def main(queue):
     global CMPFUNC_t
@@ -37,10 +36,9 @@ def main(queue):
     CMPFUNC_t = ctypes.CFUNCTYPE(None, ctypes.c_int, NethogsMonitorRecord_ptr)
 
     def callback(action, update):
-        u = str(update.contents)
-        a = json.loads(u)
-        a['action'] = action
-        queue.put(json.dumps(a))
+        update_dict = update.contents.asdict()
+        update_dict['action'] = action
+        queue.put(json.dumps(update_dict))
 
     dist_callback = CMPFUNC_t(callback)
 
