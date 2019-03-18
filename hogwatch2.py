@@ -17,67 +17,62 @@ USERS = set()
 loop = asyncio.get_event_loop()
 queue = janus.Queue(loop=loop)
 
-class WebSocketServerProtocolWrapper:
-    interfaces = []
+def get_hash(websocket):
+    return hashlib.sha256(str(hash(websocket)).encode()).hexdigest()
 
-    def __init__(self, webSocketServerProtocol):
-        self.webSocketServerProtocol = webSocketServerProtocol
-
-def get_wrapper_hash(wrapper):
-    return hashlib.sha256(str(hash(wrapper.webSocketServerProtocol)).encode()).hexdigest()
-
-async def consumer(wrapper, message):
-    data = json.loads(message)
-    sha = get_wrapper_hash(wrapper)
+async def consumer(websocket, message):
+    data = json.loads(message.replace('\'', '\"'))
     if 'action' in data and 'interface' in data:
         action = data['action']
         interface = data['interface']
         if action == 'add':
-            if not interface in wrapper.interfaces:
-                wrapper.interfaces.append(interface)
-                logging.info('%s adding interface: %s' % (sha, interface))
-                logging.info('%s current interfaces: %s' % (sha, wrapper.interfaces))
+            if not interface in websocket.interfaces:
+                websocket.interfaces.append(interface)
+                logging.info('%s adding interface: %s' % (websocket.id, interface))
+                logging.info('%s current interfaces: %s' % (websocket.id, websocket.interfaces))
         elif action == 'remove':
-            if interface in wrapper.interfaces:
-                wrapper.interfaces.remove(interface)
-                logging.info('%s removing interface: %s' % (sha, interface))
-                logging.info('%s current interfaces: %s' % (sha, wrapper.interfaces))
+            if interface in websocket.interfaces:
+                websocket.interfaces.remove(interface)
+                logging.info('%s removing interface: %s' % (websocket.id, interface))
+                logging.info('%s current interfaces: %s' % (websocket.id, websocket.interfaces))
         else:
-            logging.error('%s unsupported event: %s' % (sha, action))
+            logging.error('%s unsupported event: %s' % (websocket.id, action))
     else:
-        logging.error('%s parameter missing: %s' % (sha, data))
+        logging.error('%s parameter missing: %s' % (websocket.id, data))
 
-async def consumer_handler(wrapper, path):
+async def consumer_handler(websocket, path):
     try:
         while True:
-            message = await wrapper.webSocketServerProtocol.recv()
-            await consumer(wrapper, message)
+            message = await websocket.recv()
+            await consumer(websocket, message)
     except websockets.exceptions.ConnectionClosed as e:
         pass
 
-async def producer_handler(wrapper, path):
+async def producer_handler():
     while True:
         message = await queue.async_q.get()
         message_dict = json.loads(message)
-        if len(wrapper.interfaces) > 0:
-            if message_dict['device_name'] in wrapper.interfaces:
-                await wrapper.webSocketServerProtocol.send(message)
-        else:
-            await wrapper.webSocketServerProtocol.send(message)
+        for websocket in USERS:
+            if len(websocket.interfaces) > 0:
+                if message_dict['device_name'] in websocket.interfaces:
+                    await websocket.send(message)
+            else:
+                await websocket.send(message)
 
-async def register(wrapper):
-    USERS.add(wrapper)
+async def register(websocket):
+    USERS.add(websocket)
 
-async def unregister(wrapper):
-    USERS.remove(wrapper)
+async def unregister(websocket):
+    USERS.remove(websocket)
 
 async def handler(websocket, path):
-    wrapper = WebSocketServerProtocolWrapper(websocket)
-    await register(wrapper)
-    logging.info('%s connected' % get_wrapper_hash(wrapper))
+    websocket.interfaces = list()
+    websocket.id = get_hash(websocket)
+    await register(websocket)
+    logging.info('%s connected' % websocket.id)
     try:
-        consumer_task = asyncio.ensure_future(consumer_handler(wrapper, path))
-        producer_task = asyncio.ensure_future(producer_handler(wrapper, path))
+        consumer_task = asyncio.ensure_future(consumer_handler(websocket, path))
+        producer_task = asyncio.ensure_future(producer_handler())
         done, pending = await asyncio.wait(
             [consumer_task, producer_task],
             return_when=asyncio.FIRST_COMPLETED,
@@ -85,8 +80,8 @@ async def handler(websocket, path):
         for task in pending:
             task.cancel()
     finally:
-        logging.info('%s disconnected' % get_wrapper_hash(wrapper))
-        await unregister(wrapper)
+        logging.info('%s disconnected' % websocket.id)
+        await unregister(websocket)
 
 def signal_handler(signal, frame):
     sys.exit(0)
