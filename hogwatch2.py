@@ -90,7 +90,7 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     future = loop.run_in_executor(None, pynethogs.main, queue.sync_q)
 
-    loop.run_until_complete(websockets.serve(handler, 'localhost', 8765))
+    loop.run_until_complete(websockets.serve(handler, '0.0.0.0', 8765))
     loop.run_forever()
 
 if __name__ == '__main__':
