@@ -1,24 +1,27 @@
 #!/usr/bin/env python
 
-import os
-import sys
-import json
-import janus
-import signal
-import logging
 import asyncio
 import hashlib
+import json
+import logging
+import os
+import signal
+import sys
+
+import janus
 import websockets
+
 import pynethogs
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
 USERS = set()
-loop = asyncio.get_event_loop()
-queue = janus.Queue(loop=loop)
+queue = None
+
 
 def get_hash(websocket):
     return hashlib.sha256(str(hash(websocket)).encode()).hexdigest()
+
 
 async def consumer(websocket, message):
     data = json.loads(message.replace('\'', '\"'))
@@ -40,6 +43,7 @@ async def consumer(websocket, message):
     else:
         logging.error('%s parameter missing: %s' % (websocket.id, data))
 
+
 async def consumer_handler(websocket, path):
     try:
         while True:
@@ -47,6 +51,7 @@ async def consumer_handler(websocket, path):
             await consumer(websocket, message)
     except websockets.exceptions.ConnectionClosed as e:
         pass
+
 
 async def producer_handler():
     while True:
@@ -59,11 +64,14 @@ async def producer_handler():
             else:
                 await websocket.send(message)
 
+
 async def register(websocket):
     USERS.add(websocket)
 
+
 async def unregister(websocket):
     USERS.remove(websocket)
+
 
 async def handler(websocket, path):
     websocket.interfaces = list()
@@ -83,18 +91,26 @@ async def handler(websocket, path):
         logging.info('%s disconnected' % websocket.id)
         await unregister(websocket)
 
+
 def signal_handler(signal, frame):
     sys.exit(0)
 
-def main():
-    signal.signal(signal.SIGINT, signal_handler)
-    future = loop.run_in_executor(None, pynethogs.main, queue.sync_q)
 
-    loop.run_until_complete(websockets.serve(handler, '0.0.0.0', 8765))
-    loop.run_forever()
+async def main():
+    global queue
+    queue = janus.Queue()
+    asyncio.get_running_loop().run_in_executor(None, pynethogs.main, queue.sync_q)
+
 
 if __name__ == '__main__':
     if os.getuid() != 0:
         print('This has to be run as root sorry :/')
     else:
-        main()
+        signal.signal(signal.SIGINT, signal_handler)
+        loop = asyncio.get_event_loop()
+        loop.create_task(main())
+
+        start_server = websockets.serve(handler, "localhost", 8765)
+
+        loop.run_until_complete(start_server)
+        loop.run_forever()
