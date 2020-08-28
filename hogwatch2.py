@@ -110,7 +110,7 @@ if __name__ == '__main__':
         loop = asyncio.get_event_loop()
         loop.create_task(main())
 
-        start_server = websockets.serve(handler, "localhost", 8765)
+        start_server = websockets.serve(handler, "0.0.0.0", 8765)
 
         loop.run_until_complete(start_server)
         loop.run_forever()

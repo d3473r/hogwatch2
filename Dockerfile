@@ -1,4 +1,4 @@
-FROM python:3.7-stretch
+FROM python:3.8-slim
 EXPOSE 8765
 COPY ./ /root/hogwatch2/
 RUN apt-get update && apt-get install -y libpcap-dev && pip install websockets janus
